@@ -1,0 +1,9 @@
+City,Festival,Price,mean_qty,revenue
+Hamilton,No,9,38.95454545454545,350.59
+Hamilton,Yes,10,100.0,1000.0
+London,No,10,54.93333333333333,549.33
+London,Yes,9,130.0,1170.0
+Toronto,No,9,53.0,477.0
+Toronto,Yes,8,125.0,1000.0
+Waterloo,No,8,34.36363636363637,274.91
+Waterloo,Yes,7,117.5,822.5
