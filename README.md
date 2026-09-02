@@ -80,7 +80,7 @@ The repository contains a compact educational business-case dataset: 365 daily o
 
 ## Author
 
-Yang Ren — [GitHub](https://github.com/yooyangr)
+[yooyangr](https://github.com/yooyangr)
 
 ## License
 
