@@ -1,0 +1,233 @@
+---
+title: "Context-Aware Pricing and Demand Heterogeneity"
+subtitle: "An Observational Study of Geographic and Temporal Decision Contexts"
+author: "Yang Ren"
+format:
+  docx:
+    toc: true
+    toc-depth: 2
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+# ---- Setup ----
+req <- c("tidyverse","lubridate","scales","ggrepel","patchwork",
+         "viridis","ggthemes","forcats","tidyselect","knitr")
+to_install <- setdiff(req, rownames(installed.packages()))
+if (length(to_install) > 0) install.packages(to_install)
+invisible(lapply(req, library, character.only = TRUE))
+
+DATA_DIR <- "data"
+
+numify <- function(x){
+  x <- as.character(x); x <- gsub(",", "", x); x <- gsub("%", "", x)
+  x <- trimws(x); suppressWarnings(as.numeric(x))
+}
+to_z <- function(x) (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+
+theme_set(theme_minimal(base_size = 13))
+theme_update(plot.title = element_text(face="bold"),
+             plot.subtitle = element_text(color="grey35"),
+             panel.grid.minor = element_blank())
+```
+
+# 1. Executive Summary
+
+Objective: Identify where (cities) and when (temporal windows) Mobile Feast can maximize revenue.
+
+Headlines: - Premium markets: dense, affluent, educated cities (typically Toronto/London). - Temporal yield: Summer + Weekends/Festivals are peak windows; Winter weekdays are structurally low. - Playbook: Dynamic pricing and staffing by City x Season x Day-Type; concentrate capacity in premium windows.
+
+------------------------------------------------------------------------
+
+# 2. Load & Prepare Data
+
+```{r}
+ops <- readr::read_csv(file.path(DATA_DIR,"mobile_feast_operations.csv"), show_col_types = FALSE) |>
+  mutate(
+    date     = as.Date(Date),
+    revenue  = Price * `Quantity Sold`,
+    dow      = lubridate::wday(date, week_start = 1, label = TRUE, abbr = TRUE),
+    month    = lubridate::month(date, label = TRUE, abbr = TRUE),
+    season   = dplyr::case_when(
+      lubridate::month(date) %in% c(12,1,2) ~ "Winter",
+      lubridate::month(date) %in% c(3,4,5)  ~ "Spring",
+      lubridate::month(date) %in% c(6,7,8)  ~ "Summer",
+      TRUE                                  ~ "Fall"
+    ),
+    daytype  = dplyr::case_when(
+      Festival == 1 ~ "Festival",
+      lubridate::wday(date, week_start = 1) >= 6 ~ "Weekend",
+      TRUE ~ "Weekday"
+    )
+  )
+
+demo_raw <- readr::read_csv(file.path(DATA_DIR,"municipal_demographics.csv"), show_col_types = FALSE)
+names(demo_raw) <- tolower(names(demo_raw))
+nm <- names(demo_raw)
+
+find_col <- function(nm, patterns) {
+  idx <- Reduce(`|`, lapply(patterns, function(p) grepl(p, nm, perl = TRUE)))
+  hits <- which(idx); if (length(hits) == 0) return(NA_character_) else nm[hits[1]]
+}
+
+city_name <- find_col(nm, c("^city$","^municip","^name$"))
+pop_name  <- find_col(nm, c("population","^pop$"))
+dens_name <- find_col(nm, c("density","pop[_ ]?density"))
+inc_name  <- find_col(nm, c("income","median[_ ]?income"))
+bach_name <- find_col(nm, c("bachelor","university","college"))
+div_name  <- find_col(nm, c("divers","immigrant","ethnic","minority"))
+
+demo <- tibble::tibble(
+  city = as.factor(demo_raw[[city_name]]),
+  population      = if (!is.na(pop_name))  numify(demo_raw[[pop_name]])  else NA_real_,
+  pop_density     = if (!is.na(dens_name)) numify(demo_raw[[dens_name]]) else NA_real_,
+  median_income   = if (!is.na(inc_name))  numify(demo_raw[[inc_name]])  else NA_real_,
+  share_bachelors = if (!is.na(bach_name)) numify(demo_raw[[bach_name]]) else NA_real_,
+  diversity_index = if (!is.na(div_name))  numify(demo_raw[[div_name]])  else NA_real_
+)
+
+metrics_available <- c("population","pop_density","median_income","share_bachelors","diversity_index")
+metrics_available <- metrics_available[sapply(demo[metrics_available], function(v) sum(!is.na(v))>0)]
+```
+
+------------------------------------------------------------------------
+
+# 3. Question 4 — Market Segmentation
+
+## 3.1 City Profiles (Lollipop)
+
+```{r}
+p_lolli <- demo |>
+  tidyr::pivot_longer(tidyselect::all_of(metrics_available), names_to="metric", values_to="value") |>
+  ggplot(aes(x = reorder(city, value, na.rm = TRUE), y = value, color = city)) +
+  geom_segment(aes(xend = city, y = 0, yend = value), linewidth = 1.1, alpha = .5) +
+  geom_point(size = 4) +
+  facet_wrap(~ metric, scales = "free_y", ncol = 2) +
+  scale_color_viridis_d(option = "C", end = 0.9) +
+  labs(title = "Municipal Profiles: Demographic Strengths by City",
+       subtitle = "Lollipop chart by metric", x = NULL, y = NULL, color = "City") +
+  theme(legend.position="top")
+p_lolli
+```
+
+Interpretation: - Rank and magnitude: taller sticks mean stronger market traits. Look for cities that combine high density + high income. - Education signal: higher share with Bachelors+ suggests readiness for premium or healthier SKUs and digital engagement. - Diversity: supports multicultural menu rotations and targeted promotions.
+
+------------------------------------------------------------------------
+
+## 3.2 Benchmarking (Z-Score Heatmap)
+
+```{r}
+heat <- demo |>
+  dplyr::mutate(across(tidyselect::all_of(metrics_available), to_z)) |>
+  tidyr::pivot_longer(tidyselect::all_of(metrics_available), names_to="metric", values_to="z")
+
+p_heat <- ggplot(heat, aes(metric, city, fill = z)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_text(aes(label = ifelse(is.finite(z), sprintf("%.1f", z), "")),
+            color="white", fontface="bold", size=3.6) +
+  scale_fill_viridis(option = "B", name = "z-score", limits = c(-2.5,2.5)) +
+  labs(title="City Benchmarking via Z-Scores",
+       subtitle="Bright = above average; Dark = below average", x = NULL, y = NULL) +
+  theme(legend.position="right")
+p_heat
+```
+
+Interpretation: - Bright cells indicate over-indexing. Prioritize these cities for capital deployment (trucks, events, partnerships). - Portfolio angle: stage pilots in mid performers; scale bets in top performers.
+
+------------------------------------------------------------------------
+
+# 4. Question 5 — Temporal Dynamics
+
+## 4.1 Daily Revenue (LOESS Trend)
+
+```{r}
+p_ts <- ops |>
+  dplyr::group_by(date) |>
+  dplyr::summarise(revenue = sum(revenue), .groups="drop") |>
+  ggplot(aes(date, revenue)) +
+  geom_col(fill = "#90CAF9", alpha = 0.85) +
+  geom_smooth(method="loess", se=FALSE, color="#1E88E5", linewidth=1.2, span = 0.15) +
+  labs(title="Daily Revenue Trend", subtitle="LOESS smooth reveals seasonality", x=NULL, y="Revenue ($)")
+p_ts
+```
+
+Interpretation: - Seasonality: clear summer peaks and winter troughs. - Cash planning: align inventory and staffing; avoid over-ordering in trough periods.
+
+------------------------------------------------------------------------
+
+## 4.2 Weekly Cycle by Day-Type
+
+```{r}
+p_dow <- ops |>
+  dplyr::group_by(dow, daytype) |>
+  dplyr::summarise(avg_rev = mean(revenue), .groups="drop") |>
+  ggplot(aes(dow, avg_rev, group=daytype, color=daytype)) +
+  geom_line(linewidth=1.3) + geom_point(size=3) +
+  scale_color_viridis_d(end=.9, option="C", name="Day Type") +
+  labs(title="Weekly Cycle by Day Type", subtitle="Weekend and Festival uplift", x=NULL, y="Avg Revenue ($)") +
+  theme(legend.position="top")
+p_dow
+```
+
+Interpretation: - Weekends and festivals deliver uplift: schedule more staff/units; consider surge pricing and combo upsells. - Weekdays are the baseload: use loyalty or small promos to stabilize utilization.
+
+------------------------------------------------------------------------
+
+## 4.3 Seasonal Performance by City
+
+```{r}
+p_season_city <- ops |>
+  dplyr::group_by(season, City) |>
+  dplyr::summarise(avg = mean(revenue), se = sd(revenue)/sqrt(n()), .groups="drop") |>
+  dplyr::mutate(season = factor(season, levels=c("Winter","Spring","Summer","Fall"))) |>
+  ggplot(aes(season, avg, group=City, color=City)) +
+  geom_line(linewidth=1.2) + geom_point(size=3) +
+  scale_color_viridis_d(option="D", end=.9) +
+  labs(title="Seasonal Revenue by City", subtitle="Summer peaks; Winter troughs", x=NULL, y="Average Revenue ($)")
+p_season_city
+```
+
+Interpretation: - City differences: leaders sustain higher averages across seasons; followers are more volatile. - Capacity allocation: move more trucks to leading cities in Summer; scale down in Winter to protect ROA.
+
+------------------------------------------------------------------------
+
+## 4.4 Season x Day-Type Interaction (Yield Map)
+
+```{r}
+p_interact <- ops |>
+  dplyr::group_by(season, daytype) |>
+  dplyr::summarise(avg = mean(revenue), .groups="drop") |>
+  ggplot(aes(season, daytype, fill = avg)) +
+  geom_tile(color="white", linewidth=.7) +
+  geom_text(aes(label = scales::dollar(round(avg,0))), color="white", fontface="bold", size=4) +
+  scale_fill_viridis(option="C", name="Avg Revenue") +
+  labs(title="Interaction: Season x Day-Type", subtitle="Festival/Weekend peaks", x=NULL, y=NULL)
+p_interact
+```
+
+Interpretation: - Hottest tiles (Festival-Summer, Weekend-Spring/Summer) = max yield: raise prices, extend hours, expand menus. - Cool tiles (Weekday-Winter) = targeted discounts/loyalty to maintain throughput.
+
+------------------------------------------------------------------------
+
+# 5. Recommendations (Managerial)
+
+| Theme | Action | Financial Rationale |
+|------------------------|------------------------|------------------------|
+| Dynamic Pricing | Lift prices in inelastic windows (festival/weekend/summer) | Monetize demand spikes without material volume loss |
+| Resource Allocation | Concentrate fleet and staff in top z-score cities during peak seasons | Higher ROA and labor productivity |
+| Promo Targeting | Weekday/Winter offers to smooth demand | Better fixed-cost absorption, steadier cash flow |
+| Playbook OS | Operate by City x Season x Day-Type matrix | Repeatable scheduling and inventory rules |
+
+------------------------------------------------------------------------
+
+# 6. Challenges & Notes
+
+-   Demographics headers varied; handled via regex detection and numeric cleaning (commas, %).
+-   Smoothing: LOESS used for trend clarity without overfitting day-level noise.
+-   Color choices: viridis palettes for accessibility and board-ready readability.
+-   Reproducibility: All analysis runs inside this .qmd (self-contained).
+
