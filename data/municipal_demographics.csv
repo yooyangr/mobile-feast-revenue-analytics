@@ -1,0 +1,5 @@
+City,Province,CSD_Code,Population_2011,Population_Density_per_km2,Median_Age,Percent_Under_15,Percent_65_Plus,Percent_University_Degree,Median_Household_Income_2010,Labor_Force_Participation_Rate,Employment_Rate,Percent_Immigrants,Percent_Visible_Minority,Average_Household_Size,Percent_Owner_Occupied,Average_Shelter_Cost_Owner,Average_Shelter_Cost_Renter,Land_Area_km2,Population_Growth_2006_2011,Latitude,Longitude
+Hamilton,Ontario,3525005,519949,509.1,39.4,15.8,15.2,22.4,66847,63.2,57.8,23.0,11.5,2.5,71.2,1315,859,1021.31,3.9,43.2557,-79.8711
+London,Ontario,3539036,366151,913.4,38.5,16.8,14.2,25.1,58039,62.8,57.1,18.8,14.2,2.4,65.8,1189,806,420.57,4.6,42.9849,-81.2497
+Waterloo,Ontario,3530016,98780,1542.8,36.2,16.5,11.8,40.7,78374,67.9,62.4,28.2,19.8,2.6,63.4,1398,946,64.06,8.7,43.4643,-80.5204
+Toronto,Ontario,3520005,2615060,4149.5,39.0,14.5,13.4,31.4,65829,65.2,59.4,49.9,47.0,2.5,66.9,1465,1067,630.18,4.5,43.6532,-79.3832
